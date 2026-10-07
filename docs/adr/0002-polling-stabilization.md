@@ -12,9 +12,9 @@ The engine must wait until a conversation's transcript file has finished writing
 
 Use a **polling loop** operating against an abstract **`TranscriptSource`** seam that re-reads transcript records until size/record count stabilizes and expected `SearchResult` records are visible, or until a configurable timeout expires.
 
-- **Seam**: The loop accepts `conv_dir: Path | TranscriptSource`.
+- **Seam**: The loop accepts `source_or_conv_dir: Path | TranscriptSource`.
 - **Adapters**:
-  1. `JsonlAdapter`: Filesystem adapter polling until file size is invariant across intervals (`curr_size == last_size and curr_size > 0`).
+  1. `JsonlAdapter`: Filesystem adapter polling until file size is invariant across intervals (`current_size == last_size and current_size > 0`).
   2. `MemoryTranscriptSource`: In-memory adapter enabling instant, zero-I/O testing of stabilization and extraction without disk dependencies.
 - **Pure Extraction**: Decoupled via `extract_searches(source, ...)` for callers that do not require polling.
 - **Timing**: Polling interval: 0.1 seconds. Default timeout: 5.0 seconds.

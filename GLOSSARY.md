@@ -33,7 +33,7 @@ The Provider root filesystem directory for a given surface, where per-conversati
 
 ## Conversation
 
-A single Provider conversational session, identified by a UUID. Contains a transcript, search results, and scratch outputs. Also referred to as a `conv`.
+A single Provider conversational session, identified by a UUID. Contains a transcript, search results, and scratch outputs. Also referred to as a `conv`. Represented in code by the `Conversation` dataclass (`id`, `surface`, `conversation_dir`, `brain_dir`).
 
 ## Active Conversation
 
@@ -69,7 +69,7 @@ A single citation extracted from a search execution record's content. Carries `t
 The process of matching a `Search Call` to its corresponding `Search Execution Record`. The engine supports two strategies:
 
 - **Explicit ID pairing** — matches on `tool_call_id`.
-- **Sequential pairing** — matches by `step_index` adjacency or content signature when no ID is present.
+- **Sequential pairing** — matches by `step_index` adjacency or content signature via `match_and_consume_sequential_call` when no ID is present.
 
 ## Stabilization
 
