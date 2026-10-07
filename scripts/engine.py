@@ -91,7 +91,7 @@ class JsonlAdapter:
                     continue
                 try:
                     record = json.loads(clean_line)
-                    if "truncated_fields" in record:
+                    if bool(record.get("truncated_fields")):
                         self._truncated = True
                     yield record
                 except json.JSONDecodeError:
@@ -203,7 +203,7 @@ def pair_search_calls(
         elif rec_type in ("SEARCH_WEB", "GENERIC"):
             call_id = rec.get("tool_call_id")
             content = rec.get("content", "")
-            is_truncated = "truncated_fields" in rec
+            is_truncated = bool(rec.get("truncated_fields"))
 
             matched_call = None
             if call_id and call_id in pending_by_id:
