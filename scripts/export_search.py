@@ -26,77 +26,13 @@ from .engine import (
     poll_and_extract_searches,
 )
 from .exporters import export_results
-from .surfaces import resolve_brain_dir
-
-
-def resolve_session_dir(
-    brain_dir: Path, conv_id: str | None, auto: bool, verbose: bool
-) -> Tuple[str, Path]:
-    if not brain_dir.exists():
-        sys.stderr.write(f"[ERROR] Brain directory not found: {brain_dir}\n")
-        sys.exit(ERR_NO_SESSION)
-
-    # Priority 1: Explicit --conv-id
-    target_id = conv_id or os.environ.get("ANTIGRAVITY_CONV_ID")
-    if target_id:
-        if not UUID_REGEX.match(target_id):
-            sys.stderr.write(
-                f"[ERROR] Invalid UUID format for conv-id: {target_id}\n"
-            )
-            sys.exit(ERR_INVALID_ARGS)
-        target_path = brain_dir / target_id
-        if not target_path.exists():
-            sys.stderr.write(
-                f"[ERROR] Conversation session directory not found: {target_path}\n"
-            )
-            sys.exit(ERR_NO_SESSION)
-        return target_id, target_path
-
-    # Priority 2: --auto flag
-    if auto:
-        active_marker = brain_dir / ".active_session"
-        if active_marker.exists():
-            candidate = active_marker.read_text().strip()
-            if UUID_REGEX.match(candidate) and (brain_dir / candidate).exists():
-                return candidate, brain_dir / candidate
-
-        now = time.time()
-        recent_sessions: List[Tuple[float, Path]] = []
-        for d in brain_dir.iterdir():
-            if d.is_dir() and UUID_REGEX.match(d.name):
-                mtime = d.stat().st_mtime
-                if now - mtime <= 600:  # 10 minutes window
-                    recent_sessions.append((mtime, d))
-
-        if len(recent_sessions) > 1:
-            sys.stderr.write(
-                "[ERROR] Multiple active sessions detected in the last 10 minutes:\n"
-            )
-            for _, p in recent_sessions:
-                sys.stderr.write(f"  - {p.name}\n")
-            sys.stderr.write("Specify --conv-id <UUID> to resolve ambiguity.\n")
-            sys.exit(ERR_AMBIGUOUS_SESSION)
-
-        if len(recent_sessions) == 1:
-            return recent_sessions[0][1].name, recent_sessions[0][1]
-
-        # Fallback to latest modified
-        all_sessions = [
-            d
-            for d in brain_dir.iterdir()
-            if d.is_dir() and UUID_REGEX.match(d.name)
-        ]
-        if all_sessions:
-            all_sessions.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-            return all_sessions[0].name, all_sessions[0]
-
-        sys.stderr.write(f"[ERROR] No sessions found under {brain_dir}\n")
-        sys.exit(ERR_NO_SESSION)
-
-    sys.stderr.write(
-        "[ERROR] Either --conv-id <UUID> or --auto must be specified.\n"
-    )
-    sys.exit(ERR_INVALID_ARGS)
+from .surfaces import (
+    Conversation,
+    SessionResolutionError,
+    resolve_brain_dir,
+    resolve_conversation,
+    resolve_session_dir,
+)
 
 
 def main() -> None:
@@ -168,25 +104,23 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # IDE limitations
-    if args.surface == "ide":
-        sys.stderr.write(
-            "[ERROR] IDE surface does not maintain JSONL transcripts for search_web.\n"
+    try:
+        conv = resolve_conversation(
+            conv_id=args.conv_id,
+            auto=args.auto,
+            surface=args.surface,
+            brain_dir=args.brain_dir,
+            verbose=args.verbose,
         )
-        sys.exit(ERR_NO_TRANSCRIPT)
-
-    surface_name, brain_dir = resolve_brain_dir(
-        args.brain_dir, args.surface, args.verbose
-    )
-    conv_id, conv_dir = resolve_session_dir(
-        brain_dir, args.conv_id, args.auto, args.verbose
-    )
+    except SessionResolutionError as err:
+        sys.stderr.write(f"[ERROR] {err.message}\n")
+        sys.exit(err.error_code)
 
     expected_idx = None if args.all else args.index
     searches, is_truncated = poll_and_extract_searches(
-        conv_dir=conv_dir,
-        conversation_id=conv_id,
-        surface=surface_name,
+        conv_dir=conv.dir,
+        conversation_id=conv.id,
+        surface=conv.surface,
         expected_index=expected_idx,
         timeout=args.timeout,
         verbose=args.verbose,
@@ -221,7 +155,7 @@ def main() -> None:
         if args.output_dir:
             target_out = Path(args.output_dir).expanduser().resolve()
         else:
-            target_out = conv_dir / "scratch" / "search_web"
+            target_out = conv.dir / "scratch" / "search_web"
         try:
             target_out.mkdir(parents=True, exist_ok=True)
         except PermissionError:

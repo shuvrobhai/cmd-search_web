@@ -15,8 +15,7 @@ from .engine import (
     SUCCESS,
     poll_and_extract_searches,
 )
-from .export_search import resolve_session_dir
-from .surfaces import resolve_brain_dir
+from .surfaces import SessionResolutionError, resolve_conversation
 
 
 def main() -> None:
@@ -42,29 +41,30 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.surface == "ide":
-        sys.stderr.write(
-            "[ERROR] IDE surface does not maintain JSONL transcripts.\n"
+    try:
+        conv = resolve_conversation(
+            conv_id=args.conv_id,
+            auto=args.auto,
+            surface=args.surface,
+            brain_dir=args.brain_dir,
+            verbose=False,
         )
-        sys.exit(ERR_NO_TRANSCRIPT)
-
-    surface_name, brain_dir = resolve_brain_dir(args.brain_dir, args.surface)
-    conv_id, conv_dir = resolve_session_dir(
-        brain_dir, args.conv_id, args.auto, False
-    )
+    except SessionResolutionError as err:
+        sys.stderr.write(f"[ERROR] {err.message}\n")
+        sys.exit(err.error_code)
 
     searches, _ = poll_and_extract_searches(
-        conv_dir=conv_dir,
-        conversation_id=conv_id,
-        surface=surface_name,
+        conv_dir=conv.dir,
+        conversation_id=conv.id,
+        surface=conv.surface,
         timeout=1.0,
     )
 
     if args.json:
         payload = {
             "schema_version": SCHEMA_VERSION,
-            "conversation_id": conv_id,
-            "surface": surface_name,
+            "conversation_id": conv.id,
+            "surface": conv.surface,
             "total": len(searches),
             "searches": [asdict(s) for s in searches],
         }
@@ -72,10 +72,10 @@ def main() -> None:
         sys.exit(SUCCESS)
 
     if not searches:
-        sys.stdout.write(f"No search_web calls found for session {conv_id}.\n")
+        sys.stdout.write(f"No search_web calls found for session {conv.id}.\n")
         sys.exit(SUCCESS)
 
-    sys.stdout.write(f"Found {len(searches)} search(es) in session {conv_id}:\n")
+    sys.stdout.write(f"Found {len(searches)} search(es) in session {conv.id}:\n")
     sys.stdout.write(f"{'INDEX':<7} | {'TIMESTAMP':<20} | {'QUERY'}\n")
     sys.stdout.write("-" * 65 + "\n")
     for s in searches:
