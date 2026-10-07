@@ -10,14 +10,20 @@ The engine must wait until a conversation's transcript file has finished writing
 
 ## Decision
 
-Use a **polling loop** that re-reads the transcript file until its size stops changing (stabilization) and the expected number of `SearchResult` records is available, or until a configurable timeout expires.
+Use a **polling loop** operating against an abstract **`TranscriptSource`** seam that re-reads transcript records until size/record count stabilizes and expected `SearchResult` records are visible, or until a configurable timeout expires.
 
-Polling interval: 0.1 seconds. Default timeout: 5.0 seconds.
+- **Seam**: The loop accepts `conv_dir: Path | TranscriptSource`.
+- **Adapters**:
+  1. `JsonlAdapter`: Filesystem adapter polling until file size is invariant across intervals (`curr_size == last_size and curr_size > 0`).
+  2. `MemoryTranscriptSource`: In-memory adapter enabling instant, zero-I/O testing of stabilization and extraction without disk dependencies.
+- **Pure Extraction**: Decoupled via `extract_searches(source, ...)` for callers that do not require polling.
+- **Timing**: Polling interval: 0.1 seconds. Default timeout: 5.0 seconds.
 
 ## Rationale
 
 - **Simplicity** — polling requires no external dependencies (e.g., `watchdog`, `inotify`) and works identically on Linux, macOS, and Windows.
 - **Portability** — an event-driven approach would require platform-specific filesystem notification mechanisms or Provider support for change events.
+- **Testability & Seams** — decoupling file resolution from polling allows `poll_and_extract_searches` and `extract_searches` to be tested completely in memory with zero filesystem access.
 - **Predictability** — the timeout gives users a clear, tunable bound on extraction latency.
 
 ## Alternatives Considered
@@ -30,3 +36,4 @@ Polling interval: 0.1 seconds. Default timeout: 5.0 seconds.
 - Extraction latency is bounded by the timeout, not by actual transcript completion.
 - A busy system with slow I/O may hit the timeout and return partial results.
 - The poll loop consumes a small amount of CPU while waiting.
+- The `TranscriptSource` protocol is a real, two-adapter seam (`JsonlAdapter` and `MemoryTranscriptSource`), enabling fast unit testing without disk I/O.
