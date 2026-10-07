@@ -4,7 +4,7 @@ Issues and specs for this repo live as GitHub issues for owner `shuvrobhai` / re
 
 ## Remote configuration note
 
-No git remote is currently configured in this clone. Once a remote is added (`git remote add origin https://github.com/shuvrobhai/cmd-search_web.git`), `gh` will infer the repo automatically. Until then, skills should pass `--repo shuvrobhai/cmd-search_web` to `gh` commands explicitly.
+Git remote `origin` is configured (`https://github.com/shuvrobhai/cmd-search_web.git`), so `gh` infers the repository automatically.
 
 ## Conventions
 
