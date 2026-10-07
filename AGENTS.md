@@ -9,8 +9,10 @@ Always use `uv` for environment management:
 - **Run tests**: `uv run pytest tests/`
 - **Run typecheck**: `uv run --with mypy mypy scripts/`
 
-## Architecture Pointers
+## Architecture & Domain Pointers
 
+- **Domain Model**: [`GLOSSARY.md`](GLOSSARY.md) — Ubiquitous domain terminology (Provider, Brain, Conversation, Pairing, Stabilization).
+- **Architecture Decisions**: [`docs/adr/`](docs/adr/) — ADR-0001 (Hybrid pairing), ADR-0002 (Polling stabilization).
 - **Parsing & Polling**: [`scripts/engine.py`](scripts/engine.py) — Core transcript parsing, search pairing, JSONL adapter, and stabilization polling.
 - **Surface Detection**: [`scripts/surfaces.py`](scripts/surfaces.py) — Discovers active Antigravity session (App vs. CLI) and transcript directories.
 - **Exporters**: [`scripts/exporters.py`](scripts/exporters.py) — Formats research extractions into Markdown notes and JSONL feeds.
