@@ -22,9 +22,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="List search_web calls in an Antigravity conversation."
     )
-    id_group = parser.add_mutually_exclusive_group(required=True)
-    id_group.add_argument("--conv-id", help="Conversation UUID")
-    id_group.add_argument(
+    identity_group = parser.add_mutually_exclusive_group(required=True)
+    identity_group.add_argument("--conv-id", help="Conversation UUID")
+    identity_group.add_argument(
         "--auto", action="store_true", help="Auto-detect current active session"
     )
 
@@ -54,7 +54,7 @@ def main() -> None:
         sys.exit(err.error_code)
 
     searches, _ = poll_and_extract_searches(
-        conv_dir=conv.dir,
+        source_or_conv_dir=conv.conversation_dir,
         conversation_id=conv.id,
         surface=conv.surface,
         timeout=1.0,
@@ -78,10 +78,10 @@ def main() -> None:
     sys.stdout.write(f"Found {len(searches)} search(es) in session {conv.id}:\n")
     sys.stdout.write(f"{'INDEX':<7} | {'TIMESTAMP':<20} | {'QUERY'}\n")
     sys.stdout.write("-" * 65 + "\n")
-    for s in searches:
-        trunc_flag = " [TRUNCATED]" if s.is_truncated else ""
+    for search in searches:
+        trunc_flag = " [TRUNCATED]" if search.is_truncated else ""
         sys.stdout.write(
-            f"{s.index:<7} | {s.timestamp[:19]:<20} | {s.query}{trunc_flag}\n"
+            f"{search.index:<7} | {search.timestamp[:19]:<20} | {search.query}{trunc_flag}\n"
         )
 
     sys.exit(SUCCESS)

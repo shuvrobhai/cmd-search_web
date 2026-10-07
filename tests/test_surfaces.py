@@ -47,7 +47,7 @@ class TestResolveConversation:
         conv = resolve_conversation(conv_id=VALID_UUID, brain_dir=tmp_path)
         assert isinstance(conv, Conversation)
         assert conv.id == VALID_UUID
-        assert conv.dir == session_dir
+        assert conv.conversation_dir == session_dir
         assert conv.brain_dir == tmp_path
 
     def test_explicit_invalid_uuid(self, tmp_path: Path) -> None:
@@ -68,7 +68,7 @@ class TestResolveConversation:
 
         conv = resolve_conversation(auto=True, brain_dir=tmp_path)
         assert conv.id == VALID_UUID
-        assert conv.dir == session_dir
+        assert conv.conversation_dir == session_dir
 
     def test_auto_recent_window(self, tmp_path: Path) -> None:
         session_dir = tmp_path / VALID_UUID
@@ -76,7 +76,7 @@ class TestResolveConversation:
 
         conv = resolve_conversation(auto=True, brain_dir=tmp_path)
         assert conv.id == VALID_UUID
-        assert conv.dir == session_dir
+        assert conv.conversation_dir == session_dir
 
     def test_auto_ambiguous_sessions(self, tmp_path: Path) -> None:
         (tmp_path / VALID_UUID).mkdir()
@@ -108,7 +108,7 @@ class TestConversationProperties:
         conv = Conversation(
             id=VALID_UUID,
             surface="cli",
-            dir=session_dir,
+            conversation_dir=session_dir,
             brain_dir=tmp_path,
         )
 

@@ -84,7 +84,7 @@ class TestFormatJsonl:
         assert parsed_2["index"] == 1
 
 
-class TestWriteAtomic:
+class TestAtomicWrite:
     def test_atomic_write_creates_file(self, tmp_path: Path) -> None:
         target = tmp_path / "notes" / "search.md"
         atomic_write(target, "hello world")
@@ -112,9 +112,9 @@ class TestExportResults:
         res = export_results(
             results=[_sample_result()],
             output_dir=tmp_path,
-            fmt="md",
+            output_format="md",
         )
-        assert res.success is True
+        assert res.is_success is True
         assert res.total_exported == 1
         assert len(res.output_files) == 1
         assert Path(res.output_files[0]).exists()
@@ -123,9 +123,9 @@ class TestExportResults:
         res = export_results(
             results=[_sample_result(0), _sample_result(1)],
             output_dir=tmp_path,
-            fmt="jsonl",
+            output_format="jsonl",
         )
-        assert res.success is True
+        assert res.is_success is True
         assert res.total_exported == 1
         assert len(res.output_files) == 1
         assert Path(res.output_files[0]).name == "searches.jsonl"

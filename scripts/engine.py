@@ -56,7 +56,7 @@ class SearchResult:
 
 @dataclass
 class ExportResult:
-    success: bool
+    is_success: bool
     output_files: List[str] = field(default_factory=list)
     total_exported: int = 0
     error: Optional[str] = None
@@ -150,7 +150,7 @@ def resolve_transcript_source(conv_dir: Path) -> TranscriptSource:
     raise FileNotFoundError(f"No transcript found under {logs_dir}")
 
 
-def clean_summary_and_citations(
+def parse_summary_and_citations(
     raw_content: str,
 ) -> tuple[str, List[Source]]:
     """Separates summary markdown from citations and parses URLs."""
@@ -192,7 +192,7 @@ def clean_summary_and_citations(
     return summary_text, sources
 
 
-def match_sequential_call(
+def match_and_consume_sequential_call(
     step_index: int,
     content: str,
     pending_sequential: List[Dict[str, Any]],
@@ -228,29 +228,29 @@ def pair_search_calls(
     pending_sequential: List[Dict[str, Any]] = []
     paired_results: List[SearchResult] = []
 
-    for rec in records:
-        rec_type = rec.get("type")
-        step_index = rec.get("step_index", 0)
-        timestamp = rec.get("created_at", "")
+    for record in records:
+        rec_type = record.get("type")
+        step_index = record.get("step_index", 0)
+        timestamp = record.get("created_at", "")
 
         # 1. Detect tool calls in planner records
         if rec_type in provider.planner_record_types:
-            tool_calls = rec.get("tool_calls", [])
-            for tc in tool_calls:
+            tool_calls = record.get("tool_calls", [])
+            for tool_call in tool_calls:
                 tc_name = (
-                    tc.get("name")
-                    or tc.get("tool_name")
-                    or tc.get("tool")
+                    tool_call.get("name")
+                    or tool_call.get("tool_name")
+                    or tool_call.get("tool")
                 )
                 if tc_name == provider.tool_name:
-                    args = tc.get("args") or tc.get("arguments", {})
+                    args = tool_call.get("args") or tool_call.get("arguments", {})
                     if isinstance(args, str):
                         try:
                             args = json.loads(args)
                         except Exception:
                             args = {"query": args}
                     query = args.get("query", "")
-                    call_id = tc.get("id") or tc.get("tool_call_id")
+                    call_id = tool_call.get("id") or tool_call.get("tool_call_id")
 
                     call_meta = {
                         "call_id": call_id,
@@ -266,20 +266,20 @@ def pair_search_calls(
 
         # 2. Detect search execution outputs
         elif rec_type in provider.execution_record_types:
-            call_id = rec.get("tool_call_id")
-            content = rec.get("content", "")
-            is_truncated = bool(rec.get("truncated_fields"))
+            call_id = record.get("tool_call_id")
+            content = record.get("content", "")
+            is_truncated = bool(record.get("truncated_fields"))
 
             matched_call = None
             if call_id and call_id in pending_by_id:
                 matched_call = pending_by_id.pop(call_id)
             elif pending_sequential:
-                matched_call = match_sequential_call(
+                matched_call = match_and_consume_sequential_call(
                     step_index, content, pending_sequential, provider.search_signatures
                 )
 
             if matched_call and matched_call["query"]:
-                summary, sources = clean_summary_and_citations(content)
+                summary, sources = parse_summary_and_citations(content)
                 result = SearchResult(
                     schema_version=SCHEMA_VERSION,
                     conversation_id=conversation_id,
@@ -310,7 +310,7 @@ def extract_searches(
 
 
 def poll_and_extract_searches(
-    conv_dir: Path | TranscriptSource,
+    source_or_conv_dir: Path | TranscriptSource,
     conversation_id: str,
     surface: str,
     expected_index: Optional[int] = None,
@@ -327,22 +327,22 @@ def poll_and_extract_searches(
 
     while True:
         source: Optional[TranscriptSource] = None
-        if isinstance(conv_dir, Path):
+        if isinstance(source_or_conv_dir, Path):
             try:
-                source = resolve_transcript_source(conv_dir)
-                curr_size = source.source_path().stat().st_size
+                source = resolve_transcript_source(source_or_conv_dir)
+                current_size = source.source_path().stat().st_size
             except (FileNotFoundError, OSError):
-                curr_size = -1
+                current_size = -1
                 source = None
         else:
-            source = conv_dir
+            source = source_or_conv_dir
             try:
-                curr_size = source.source_path().stat().st_size
+                current_size = source.source_path().stat().st_size
             except (FileNotFoundError, OSError):
-                curr_size = 1
+                current_size = 1
 
-        is_memory_source = not isinstance(conv_dir, Path)
-        is_stable_file = curr_size == last_size and curr_size > 0
+        is_memory_source = not isinstance(source_or_conv_dir, Path)
+        is_stable_file = current_size == last_size and current_size > 0
 
         if source and (is_stable_file or is_memory_source):
             last_results, has_truncated_record = extract_searches(
@@ -363,7 +363,7 @@ def poll_and_extract_searches(
             if is_memory_source:
                 return last_results, has_truncated_record
 
-        last_size = curr_size
+        last_size = current_size
         if time.time() - start_time >= timeout:
             break
         time.sleep(poll_interval)

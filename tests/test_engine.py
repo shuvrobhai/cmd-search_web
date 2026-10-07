@@ -25,10 +25,10 @@ from scripts.engine import (
     UUID_REGEX,
     SearchResult,
     Source,
-    clean_summary_and_citations,
     extract_searches,
-    match_sequential_call,
+    match_and_consume_sequential_call,
     pair_search_calls,
+    parse_summary_and_citations,
     poll_and_extract_searches,
 )
 
@@ -42,15 +42,15 @@ class TestUuidRegex:
         assert not UUID_REGEX.match("12345")
 
 
-class TestCleanSummaryAndCitations:
+class TestParseSummaryAndCitations:
     def test_empty_content(self) -> None:
-        summary, sources = clean_summary_and_citations("")
+        summary, sources = parse_summary_and_citations("")
         assert summary == ""
         assert sources == []
 
     def test_summary_only(self) -> None:
         raw = "Python is a programming language."
-        summary, sources = clean_summary_and_citations(raw)
+        summary, sources = parse_summary_and_citations(raw)
         assert summary == raw
         assert sources == []
 
@@ -62,7 +62,7 @@ class TestCleanSummaryAndCitations:
             "- [Python Docs](https://docs.python.org)\n"
             "- [PEP 8](https://peps.python.org/pep-0008/)\n"
         )
-        summary, sources = clean_summary_and_citations(raw)
+        summary, sources = parse_summary_and_citations(raw)
         assert "Python is great." in summary
         assert len(sources) == 2
         assert sources[0].title == "Python Docs"
@@ -72,7 +72,7 @@ class TestCleanSummaryAndCitations:
 
     def test_case_insensitive_citations_header(self) -> None:
         raw = "Summary text.\n### REFERENCES\n- [Title](https://example.com)"
-        summary, sources = clean_summary_and_citations(raw)
+        summary, sources = parse_summary_and_citations(raw)
         assert "Summary text." in summary
         assert len(sources) == 1
         assert sources[0].url == "https://example.com"
@@ -138,7 +138,7 @@ class TestPollAndExtractSearches:
         conv_dir = tmp_path / "conv"
         conv_dir.mkdir()
         results, truncated = poll_and_extract_searches(
-            conv_dir=conv_dir,
+            source_or_conv_dir=conv_dir,
             conversation_id="00000000-0000-0000-0000-000000000000",
             surface="cli",
             timeout=0.1,
@@ -174,7 +174,7 @@ class TestPollAndExtractSearches:
             f.write(json.dumps(call) + "\n")
             f.write(json.dumps(output) + "\n")
         results, truncated = poll_and_extract_searches(
-            conv_dir=conv_dir,
+            source_or_conv_dir=conv_dir,
             conversation_id="conv-1",
             surface="cli",
             timeout=1.0,
@@ -212,7 +212,7 @@ class TestPollAndExtractSearches:
             f.write(json.dumps(call) + "\n")
             f.write(json.dumps(output) + "\n")
         results, truncated = poll_and_extract_searches(
-            conv_dir=conv_dir,
+            source_or_conv_dir=conv_dir,
             conversation_id="conv-1",
             surface="cli",
             timeout=1.0,
@@ -249,7 +249,7 @@ class TestPollAndExtractSearches:
             f.write(json.dumps(call) + "\n")
             f.write(json.dumps(output) + "\n")
         results, truncated = poll_and_extract_searches(
-            conv_dir=conv_dir,
+            source_or_conv_dir=conv_dir,
             conversation_id="conv-1",
             surface="cli",
             timeout=1.0,
@@ -260,10 +260,10 @@ class TestPollAndExtractSearches:
         assert results[0].is_truncated is False
 
 
-class TestMatchSequentialCall:
+class TestMatchAndConsumeSequentialCall:
     def test_adjacent_step_index_matches(self) -> None:
         pending = [{"call_id": None, "query": "pytest", "step_index": 2}]
-        matched = match_sequential_call(
+        matched = match_and_consume_sequential_call(
             step_index=3,
             content="Some search output",
             pending_sequential=pending,
@@ -274,7 +274,7 @@ class TestMatchSequentialCall:
 
     def test_content_signature_matches_even_if_not_adjacent(self) -> None:
         pending = [{"call_id": None, "query": "antigravity", "step_index": 1}]
-        matched = match_sequential_call(
+        matched = match_and_consume_sequential_call(
             step_index=5,
             content="Created At: 2024-01-01\nFound results",
             pending_sequential=pending,
@@ -285,7 +285,7 @@ class TestMatchSequentialCall:
 
     def test_content_signature_the_search_for(self) -> None:
         pending = [{"call_id": None, "query": "search query", "step_index": 1}]
-        matched = match_sequential_call(
+        matched = match_and_consume_sequential_call(
             step_index=4,
             content="The search for 'search query' returned 3 results.",
             pending_sequential=pending,
@@ -296,7 +296,7 @@ class TestMatchSequentialCall:
 
     def test_non_adjacent_without_signature_does_not_match(self) -> None:
         pending = [{"call_id": None, "query": "python", "step_index": 1}]
-        matched = match_sequential_call(
+        matched = match_and_consume_sequential_call(
             step_index=6,
             content="Output from bash command without search signature",
             pending_sequential=pending,
@@ -305,7 +305,7 @@ class TestMatchSequentialCall:
         assert len(pending) == 1
 
     def test_empty_pending_returns_none(self) -> None:
-        assert match_sequential_call(2, "content", []) is None
+        assert match_and_consume_sequential_call(2, "content", []) is None
 
 
 class TestSequentialPairingIntegration:
@@ -424,7 +424,7 @@ class TestMemoryTranscriptSourceAndExtraction:
         ]
         source = MemoryTranscriptSource(records=records, has_truncation=True)
         results, truncated = poll_and_extract_searches(
-            conv_dir=source,
+            source_or_conv_dir=source,
             conversation_id="conv-1",
             surface="cli",
             timeout=0.1,

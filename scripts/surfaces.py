@@ -52,12 +52,12 @@ class Conversation:
 
     id: str
     surface: str
-    dir: Path
+    conversation_dir: Path
     brain_dir: Path
 
     @property
     def transcript_dir(self) -> Path:
-        return self.dir / ".system_generated" / "logs"
+        return self.conversation_dir / ".system_generated" / "logs"
 
     @property
     def transcript_path(self) -> Optional[Path]:
@@ -189,7 +189,7 @@ def resolve_conversation(
         return Conversation(
             id=target_id,
             surface=surface_name,
-            dir=target_path,
+            conversation_dir=target_path,
             brain_dir=resolved_brain,
         )
 
@@ -198,12 +198,12 @@ def resolve_conversation(
         active_marker = resolved_brain / ".active_session"
         if active_marker.exists():
             candidate = active_marker.read_text().strip()
-            cand_path = resolved_brain / candidate
-            if UUID_REGEX.match(candidate) and cand_path.exists():
+            candidate_path = resolved_brain / candidate
+            if UUID_REGEX.match(candidate) and candidate_path.exists():
                 return Conversation(
                     id=candidate,
                     surface=surface_name,
-                    dir=cand_path,
+                    conversation_dir=candidate_path,
                     brain_dir=resolved_brain,
                 )
 
@@ -224,11 +224,11 @@ def resolve_conversation(
             )
 
         if len(recent_sessions) == 1:
-            cand_id = recent_sessions[0][1].name
+            candidate_id = recent_sessions[0][1].name
             return Conversation(
-                id=cand_id,
+                id=candidate_id,
                 surface=surface_name,
-                dir=recent_sessions[0][1],
+                conversation_dir=recent_sessions[0][1],
                 brain_dir=resolved_brain,
             )
 
@@ -244,7 +244,7 @@ def resolve_conversation(
             return Conversation(
                 id=latest.name,
                 surface=surface_name,
-                dir=latest,
+                conversation_dir=latest,
                 brain_dir=resolved_brain,
             )
 
@@ -272,4 +272,4 @@ def resolve_session_dir(
         brain_dir=brain_dir,
         verbose=verbose,
     )
-    return conv.id, conv.dir
+    return conv.id, conv.conversation_dir

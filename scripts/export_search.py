@@ -40,9 +40,9 @@ def main() -> None:
         description="Extract and export search_web results from Antigravity session logs."
     )
 
-    id_group = parser.add_mutually_exclusive_group(required=True)
-    id_group.add_argument("--conv-id", help="Conversation UUID")
-    id_group.add_argument(
+    identity_group = parser.add_mutually_exclusive_group(required=True)
+    identity_group.add_argument("--conv-id", help="Conversation UUID")
+    identity_group.add_argument(
         "--auto", action="store_true", help="Auto-detect current active session"
     )
 
@@ -54,22 +54,22 @@ def main() -> None:
     )
     parser.add_argument("--brain-dir", help="Explicit brain root directory")
 
-    idx_group = parser.add_mutually_exclusive_group()
-    idx_group.add_argument(
+    index_group = parser.add_mutually_exclusive_group()
+    index_group.add_argument(
         "--index",
         type=int,
         default=-1,
         help="Search index (-1 for latest, 0 for first)",
     )
-    idx_group.add_argument(
+    index_group.add_argument(
         "--all", action="store_true", help="Export all searches in session"
     )
 
-    out_group = parser.add_mutually_exclusive_group()
-    out_group.add_argument(
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
         "--output-dir", help="Output directory path (defaults to scratch/)"
     )
-    out_group.add_argument(
+    output_group.add_argument(
         "--stdout", action="store_true", help="Print directly to standard out"
     )
 
@@ -94,11 +94,11 @@ def main() -> None:
         help="Log buffer poll timeout in seconds",
     )
 
-    verb_group = parser.add_mutually_exclusive_group()
-    verb_group.add_argument(
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
         "--verbose", action="store_true", help="Show execution details"
     )
-    verb_group.add_argument(
+    verbosity_group.add_argument(
         "--quiet", action="store_true", help="Suppress non-error logs"
     )
 
@@ -116,12 +116,12 @@ def main() -> None:
         sys.stderr.write(f"[ERROR] {err.message}\n")
         sys.exit(err.error_code)
 
-    expected_idx = None if args.all else args.index
+    expected_index = None if args.all else args.index
     searches, is_truncated = poll_and_extract_searches(
-        conv_dir=conv.dir,
+        source_or_conv_dir=conv.conversation_dir,
         conversation_id=conv.id,
         surface=conv.surface,
-        expected_index=expected_idx,
+        expected_index=expected_index,
         timeout=args.timeout,
         verbose=args.verbose,
     )
@@ -150,36 +150,36 @@ def main() -> None:
             sys.exit(ERR_INDEX_OUT_OF_BOUNDS)
 
     # Resolve output directory
-    target_out: Path | None = None
+    resolved_output_dir: Path | None = None
     if not args.stdout:
         if args.output_dir:
-            target_out = Path(args.output_dir).expanduser().resolve()
+            resolved_output_dir = Path(args.output_dir).expanduser().resolve()
         else:
-            target_out = conv.dir / "scratch" / "search_web"
+            resolved_output_dir = conv.conversation_dir / "scratch" / "search_web"
         try:
-            target_out.mkdir(parents=True, exist_ok=True)
+            resolved_output_dir.mkdir(parents=True, exist_ok=True)
         except PermissionError:
             sys.stderr.write(
-                f"[ERROR] Permission denied writing to: {target_out}\n"
+                f"[ERROR] Permission denied writing to: {resolved_output_dir}\n"
             )
             sys.exit(ERR_PERMISSION)
 
     res = export_results(
         results=selected_searches,
-        output_dir=target_out,
-        fmt=args.format,
+        output_dir=resolved_output_dir,
+        output_format=args.format,
         stdout=args.stdout,
         force=args.force,
         verbose=args.verbose,
     )
 
-    if not res.success:
+    if not res.is_success:
         sys.stderr.write(f"[ERROR] {res.error}\n")
         sys.exit(res.error_code)
 
     if not args.stdout and not args.quiet:
-        for f in res.output_files:
-            sys.stdout.write(f"Exported: {f}\n")
+        for file_path in res.output_files:
+            sys.stdout.write(f"Exported: {file_path}\n")
 
     sys.exit(SUCCESS)
 

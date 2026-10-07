@@ -49,8 +49,8 @@ def format_markdown(result: SearchResult) -> str:
     ]
 
     if result.sources:
-        for src in result.sources:
-            lines.append(f"- [{src.title}]({src.url})")
+        for source in result.sources:
+            lines.append(f"- [{source.title}]({source.url})")
     else:
         lines.append("_No citations found._")
 
@@ -94,18 +94,18 @@ def atomic_write(target_path: Path, content: str, force: bool = False) -> None:
 def export_results(
     results: List[SearchResult],
     output_dir: Optional[Path],
-    fmt: str = "md",
+    output_format: str = "md",
     stdout: bool = False,
     force: bool = False,
     verbose: bool = False,
 ) -> ExportResult:
     """Writes search results to stdout or target directory."""
     if not results:
-        return ExportResult(success=True, output_files=[], total_exported=0)
+        return ExportResult(is_success=True, output_files=[], total_exported=0)
 
     # 1. Handle STDOUT Mode
     if stdout:
-        if fmt == "json":
+        if output_format == "json":
             payload = {
                 "schema_version": SCHEMA_VERSION,
                 "conversation_id": results[0].conversation_id,
@@ -113,14 +113,14 @@ def export_results(
                 "results": [asdict(r) for r in results],
             }
             sys.stdout.write(json.dumps(payload, indent=2) + "\n")
-        elif fmt == "jsonl":
+        elif output_format == "jsonl":
             for r in results:
                 sys.stdout.write(json.dumps(asdict(r)) + "\n")
         else:  # md
             outputs = [format_markdown(r) for r in results]
             sys.stdout.write("\n---\n".join(outputs) + "\n")
         return ExportResult(
-            success=True, output_files=["<stdout>"], total_exported=len(results)
+            is_success=True, output_files=["<stdout>"], total_exported=len(results)
         )
 
     # 2. Handle File Output Mode
@@ -128,7 +128,7 @@ def export_results(
     written_files: List[str] = []
 
     try:
-        if fmt == "json":
+        if output_format == "json":
             target = output_dir / "searches.json"
             payload = {
                 "schema_version": SCHEMA_VERSION,
@@ -141,15 +141,15 @@ def export_results(
             )
             written_files.append(str(target))
 
-        elif fmt == "jsonl":
+        elif output_format == "jsonl":
             target = output_dir / "searches.jsonl"
             atomic_write(target, format_jsonl(results), force=force)
             written_files.append(str(target))
 
         else:  # md
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            timestamp_str = datetime.now().strftime("%Y%m%d-%H%M%S")
             for r in results:
-                target = output_dir / f"search_{r.index}_{ts}.md"
+                target = output_dir / f"search_{r.index}_{timestamp_str}.md"
                 content = format_markdown(r)
                 atomic_write(target, content, force=force)
                 written_files.append(str(target))
@@ -170,13 +170,13 @@ def export_results(
 
     except FileExistsError as e:
         return ExportResult(
-            success=False, error=str(e), error_code=ERR_FILE_EXISTS
+            is_success=False, error=str(e), error_code=ERR_FILE_EXISTS
         )
     except Exception as e:
-        return ExportResult(success=False, error=str(e), error_code=ERR_WRITE)
+        return ExportResult(is_success=False, error=str(e), error_code=ERR_WRITE)
 
     return ExportResult(
-        success=True,
+        is_success=True,
         output_files=written_files,
         total_exported=len(written_files),
     )
