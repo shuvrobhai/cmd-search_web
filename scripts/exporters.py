@@ -58,6 +58,11 @@ def format_markdown(result: SearchResult) -> str:
     return "\n".join(lines)
 
 
+def format_jsonl(results: List[SearchResult]) -> str:
+    """Formats a list of SearchResult objects into JSON Lines."""
+    return "".join(json.dumps(asdict(r)) + "\n" for r in results)
+
+
 def atomic_write(target_path: Path, content: str, force: bool = False) -> None:
     """Performs crash-safe atomic write with 0600 permissions."""
     if target_path.exists() and not force:
@@ -138,8 +143,7 @@ def export_results(
 
         elif fmt == "jsonl":
             target = output_dir / "searches.jsonl"
-            lines = [json.dumps(asdict(r)) + "\n" for r in results]
-            atomic_write(target, "".join(lines), force=force)
+            atomic_write(target, format_jsonl(results), force=force)
             written_files.append(str(target))
 
         else:  # md

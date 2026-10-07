@@ -11,18 +11,22 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .engine import (
+    ANTIGRAVITY_PROVIDER,
     ERR_AMBIGUOUS_SESSION,
     ERR_GENERAL,
     ERR_INVALID_ARGS,
     ERR_NO_SESSION,
     ERR_NO_TRANSCRIPT,
+    ProviderConfig,
     UUID_REGEX,
 )
 
-SURFACE_PATHS = {
+ProviderPaths = Dict[str, Path]
+
+SURFACE_PATHS: ProviderPaths = {
     "cli": Path.home() / ".gemini" / "antigravity-cli" / "brain",
     "app": Path.home() / ".gemini" / "antigravity" / "brain",
     "ide": Path.home() / ".gemini" / "antigravity-ide" / "brain",
@@ -91,13 +95,14 @@ def resolve_brain_dir(
     explicit_path: Optional[str | Path] = None,
     surface: Optional[str] = None,
     verbose: bool = False,
+    provider: ProviderConfig = ANTIGRAVITY_PROVIDER,
 ) -> Tuple[str, Path]:
     """Resolve the brain root directory using precedence rules.
 
     Priority:
     1. explicit_path (--brain-dir)
     2. surface (--surface)
-    3. ANTIGRAVITY_BRAIN_DIR env var
+    3. Provider env brain var (e.g. ANTIGRAVITY_BRAIN_DIR)
     4. Auto-detected default
     """
     if explicit_path:
@@ -120,12 +125,12 @@ def resolve_brain_dir(
             )
         return surface_key, resolved
 
-    env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+    env_brain = os.environ.get(provider.env_brain_var)
     if env_brain:
         resolved = Path(env_brain).expanduser().resolve()
         if verbose:
             sys.stderr.write(
-                f"[INFO] Using ANTIGRAVITY_BRAIN_DIR env: {resolved}\n"
+                f"[INFO] Using {provider.env_brain_var} env: {resolved}\n"
             )
         return "custom", resolved
 
@@ -143,6 +148,7 @@ def resolve_conversation(
     surface: Optional[str] = None,
     brain_dir: Optional[str | Path] = None,
     verbose: bool = False,
+    provider: ProviderConfig = ANTIGRAVITY_PROVIDER,
 ) -> Conversation:
     """Resolves and validates an active or explicit Conversation session.
 
@@ -158,7 +164,7 @@ def resolve_conversation(
             ERR_NO_TRANSCRIPT,
         )
 
-    surface_name, resolved_brain = resolve_brain_dir(brain_dir, surface, verbose)
+    surface_name, resolved_brain = resolve_brain_dir(brain_dir, surface, verbose, provider=provider)
 
     if not resolved_brain.exists():
         raise SessionResolutionError(
@@ -166,8 +172,8 @@ def resolve_conversation(
             ERR_NO_SESSION,
         )
 
-    # Priority 1: Explicit conv_id argument or ANTIGRAVITY_CONV_ID env var
-    target_id = conv_id or os.environ.get("ANTIGRAVITY_CONV_ID")
+    # Priority 1: Explicit conv_id argument or provider env var (e.g. ANTIGRAVITY_CONV_ID)
+    target_id = conv_id or os.environ.get(provider.env_conv_var)
     if target_id:
         if not UUID_REGEX.match(target_id):
             raise SessionResolutionError(

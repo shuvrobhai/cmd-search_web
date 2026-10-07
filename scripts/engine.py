@@ -69,6 +69,45 @@ class TranscriptSource(Protocol):
     def source_path(self) -> Path: ...
 
 
+@dataclass(frozen=True)
+class ProviderConfig:
+    """Configures Provider-specific transcript schema contracts and naming conventions."""
+
+    name: str = "antigravity"
+    tool_name: str = "search_web"
+    planner_record_types: tuple[str, ...] = ("PLANNER_RESPONSE",)
+    execution_record_types: tuple[str, ...] = ("SEARCH_WEB", "GENERIC")
+    search_signatures: tuple[str, ...] = ("The search for", "Created At:")
+    env_brain_var: str = "ANTIGRAVITY_BRAIN_DIR"
+    env_conv_var: str = "ANTIGRAVITY_CONV_ID"
+
+
+ANTIGRAVITY_PROVIDER = ProviderConfig()
+
+
+class MemoryTranscriptSource:
+    """In-memory TranscriptSource adapter for fast, zero-I/O testing."""
+
+    def __init__(
+        self,
+        records: List[Dict[str, Any]],
+        has_truncation: bool = False,
+        path: Optional[Path] = None,
+    ) -> None:
+        self._records = records
+        self._has_truncation = has_truncation
+        self._path = path or Path("/memory/transcript.jsonl")
+
+    def source_path(self) -> Path:
+        return self._path
+
+    def has_truncation(self) -> bool:
+        return self._has_truncation
+
+    def read_records(self) -> Iterator[Dict[str, Any]]:
+        yield from self._records
+
+
 class JsonlAdapter:
     def __init__(self, file_path: Path):
         self.path = file_path
@@ -153,10 +192,36 @@ def clean_summary_and_citations(
     return summary_text, sources
 
 
+def match_sequential_call(
+    step_index: int,
+    content: str,
+    pending_sequential: List[Dict[str, Any]],
+    signatures: tuple[str, ...] = ("The search for", "Created At:"),
+) -> Optional[Dict[str, Any]]:
+    """Evaluates whether an execution record matches a pending search call sequentially.
+
+    Checks step_index adjacency first (step_index == last_call['step_index'] + 1).
+    Falls back to content signature presence ('The search for', 'Created At:').
+    Returns the matched call (removing it from pending_sequential) or None.
+    """
+    if not pending_sequential:
+        return None
+
+    last_call = pending_sequential[0]
+    is_adjacent = step_index == last_call["step_index"] + 1
+    has_signature = any(sig in content for sig in signatures)
+
+    if is_adjacent or has_signature:
+        return pending_sequential.pop(0)
+
+    return None
+
+
 def pair_search_calls(
     records: Iterator[Dict[str, Any]],
     conversation_id: str,
     surface: str,
+    provider: ProviderConfig = ANTIGRAVITY_PROVIDER,
 ) -> List[SearchResult]:
     """Hybrid pairing algorithm: handles explicit ID pairing or step_index sequence."""
     pending_by_id: Dict[str, Dict[str, Any]] = {}
@@ -168,8 +233,8 @@ def pair_search_calls(
         step_index = rec.get("step_index", 0)
         timestamp = rec.get("created_at", "")
 
-        # 1. Detect tool calls in PLANNER_RESPONSE
-        if rec_type == "PLANNER_RESPONSE":
+        # 1. Detect tool calls in planner records
+        if rec_type in provider.planner_record_types:
             tool_calls = rec.get("tool_calls", [])
             for tc in tool_calls:
                 tc_name = (
@@ -177,7 +242,7 @@ def pair_search_calls(
                     or tc.get("tool_name")
                     or tc.get("tool")
                 )
-                if tc_name == "search_web":
+                if tc_name == provider.tool_name:
                     args = tc.get("args") or tc.get("arguments", {})
                     if isinstance(args, str):
                         try:
@@ -200,7 +265,7 @@ def pair_search_calls(
                         pending_sequential.append(call_meta)
 
         # 2. Detect search execution outputs
-        elif rec_type in ("SEARCH_WEB", "GENERIC"):
+        elif rec_type in provider.execution_record_types:
             call_id = rec.get("tool_call_id")
             content = rec.get("content", "")
             is_truncated = bool(rec.get("truncated_fields"))
@@ -209,14 +274,9 @@ def pair_search_calls(
             if call_id and call_id in pending_by_id:
                 matched_call = pending_by_id.pop(call_id)
             elif pending_sequential:
-                last_call = pending_sequential[0]
-                # Match sequential if step_index is adjacent or content matches search signature
-                if (
-                    step_index == last_call["step_index"] + 1
-                    or "The search for" in content
-                    or "Created At:" in content
-                ):
-                    matched_call = pending_sequential.pop(0)
+                matched_call = match_sequential_call(
+                    step_index, content, pending_sequential, provider.search_signatures
+                )
 
             if matched_call and matched_call["query"]:
                 summary, sources = clean_summary_and_citations(content)
@@ -237,35 +297,57 @@ def pair_search_calls(
     return paired_results
 
 
+def extract_searches(
+    source: TranscriptSource,
+    conversation_id: str,
+    surface: str,
+    provider: ProviderConfig = ANTIGRAVITY_PROVIDER,
+) -> tuple[List[SearchResult], bool]:
+    """Pure extraction: pairs search calls from a TranscriptSource without polling."""
+    records = list(source.read_records())
+    results = pair_search_calls(iter(records), conversation_id, surface, provider=provider)
+    return results, source.has_truncation()
+
+
 def poll_and_extract_searches(
-    conv_dir: Path,
+    conv_dir: Path | TranscriptSource,
     conversation_id: str,
     surface: str,
     expected_index: Optional[int] = None,
     timeout: float = 5.0,
     poll_interval: float = 0.1,
     verbose: bool = False,
+    provider: ProviderConfig = ANTIGRAVITY_PROVIDER,
 ) -> tuple[List[SearchResult], bool]:
-    """Polls the transcript file until records stabilize and expectations are met."""
+    """Polls a transcript source until records stabilize and expectations are met."""
     start_time = time.time()
     last_size = -1
     last_results: List[SearchResult] = []
     has_truncated_record = False
 
     while True:
-        try:
-            source = resolve_transcript_source(conv_dir)
-            curr_size = source.source_path().stat().st_size
-        except FileNotFoundError:
-            curr_size = -1
-            source = None
+        source: Optional[TranscriptSource] = None
+        if isinstance(conv_dir, Path):
+            try:
+                source = resolve_transcript_source(conv_dir)
+                curr_size = source.source_path().stat().st_size
+            except (FileNotFoundError, OSError):
+                curr_size = -1
+                source = None
+        else:
+            source = conv_dir
+            try:
+                curr_size = source.source_path().stat().st_size
+            except (FileNotFoundError, OSError):
+                curr_size = 1
 
-        if source and curr_size == last_size and curr_size > 0:
-            records = list(source.read_records())
-            last_results = pair_search_calls(
-                iter(records), conversation_id, surface
+        is_memory_source = not isinstance(conv_dir, Path)
+        is_stable_file = curr_size == last_size and curr_size > 0
+
+        if source and (is_stable_file or is_memory_source):
+            last_results, has_truncated_record = extract_searches(
+                source, conversation_id, surface, provider=provider
             )
-            has_truncated_record = source.has_truncation()
 
             if expected_index is not None:
                 if expected_index == -1 and len(last_results) >= 1:
@@ -276,6 +358,9 @@ def poll_and_extract_searches(
                 ):
                     return last_results, has_truncated_record
             elif len(last_results) > 0:
+                return last_results, has_truncated_record
+
+            if is_memory_source:
                 return last_results, has_truncated_record
 
         last_size = curr_size
