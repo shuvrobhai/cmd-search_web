@@ -51,6 +51,7 @@ dmypy.json
 Thumbs.db
 
 # Project specific
+.agents/
 scratch/
 *.tmp
 *.log
